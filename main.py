@@ -15,19 +15,22 @@ LINE_CHANNEL_ACCESS_TOKEN = os.getenv("LINE_CHANNEL_ACCESS_TOKEN")
 LINE_CHANNEL_SECRET = os.getenv("LINE_CHANNEL_SECRET")
 GOOGLE_CREDENTIAL_JSON = os.getenv("GOOGLE_CREDENTIAL_JSON")
 
-# === 環境変数チェック ===
+# === チェック ===
 if not LINE_CHANNEL_ACCESS_TOKEN or not LINE_CHANNEL_SECRET:
     raise ValueError("LINEの環境変数が未設定です。")
 if not GOOGLE_CREDENTIAL_JSON:
-    raise ValueError("GOOGLE_CREDENTIAL_JSON 環境変数が設定されていません。")
+    raise ValueError("GOOGLE_CREDENTIAL_JSON 環境変数が未設定です。")
 
-# === Cloud Vision API 認証用に環境変数を設定 ===
-os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = GOOGLE_CREDENTIAL_JSON
+# === JSON文字列を一時ファイルに書き出してGoogle認証用に使う ===
+with open("gcp-credentials.json", "w") as f:
+    f.write(GOOGLE_CREDENTIAL_JSON)
 
+os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "gcp-credentials.json"
+
+# === LINE Bot API設定 ===
 line_bot_api = LineBotApi(LINE_CHANNEL_ACCESS_TOKEN)
 handler = WebhookHandler(LINE_CHANNEL_SECRET)
 
-# === ルート設定 ===
 @app.route("/callback", methods=["POST"])
 def callback():
     signature = request.headers["X-Line-Signature"]
@@ -38,7 +41,6 @@ def callback():
         abort(400)
     return "OK"
 
-# === メッセージイベント処理 ===
 @handler.add(MessageEvent, message=ImageMessage)
 def handle_image_message(event):
     message_content = line_bot_api.get_message_content(event.message.id)
@@ -48,7 +50,9 @@ def handle_image_message(event):
         prediction_result = process_image_and_predict(image_data)
         line_bot_api.reply_message(event.reply_token, TextSendMessage(text=prediction_result))
     except Exception as e:
-        line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"エラーが発生しました: {str(e)}"))
+        # セキュリティ上、詳細エラーを返信せず固定文言に変更
+        print("Error:", e)
+        line_bot_api.reply_message(event.reply_token, TextSendMessage(text="画像の解析中にエラーが発生しました。もう一度お試しください。"))
 
 @handler.add(MessageEvent, message=TextMessage)
 def handle_text_message(event):
@@ -58,7 +62,7 @@ def handle_text_message(event):
     else:
         line_bot_api.reply_message(event.reply_token, TextSendMessage(text="画像を送信してください（出走表）"))
 
-# === Flask 起動 ===
+# === Flask起動 ===
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
