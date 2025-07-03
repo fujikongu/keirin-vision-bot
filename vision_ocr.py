@@ -1,53 +1,62 @@
 import os
-import json
-from google.cloud import vision
-from google.oauth2 import service_account
-from PIL import Image
 import io
+from google.cloud import vision
+from PIL import Image
+import openai
 
-def load_credentials_from_env():
-    """
-    環境変数 GOOGLE_CREDENTIALS_JSON からサービスアカウント認証情報を読み込む
-    """
-    try:
-        credentials_json = os.environ.get("GOOGLE_CREDENTIALS_JSON")
-        if not credentials_json:
-            raise Exception("環境変数 GOOGLE_CREDENTIALS_JSON が設定されていません。")
-        credentials_info = json.loads(credentials_json)
-        credentials = service_account.Credentials.from_service_account_info(credentials_info)
-        return credentials
-    except Exception as e:
-        print(f"認証情報の読み込みに失敗しました: {e}")
-        raise
+# === 環境変数から APIキー取得 ===
+openai.api_key = os.getenv("OPENAI_API_KEY")
+google_credential_json = os.getenv("GOOGLE_CREDENTIAL_JSON")
 
-def detect_text_from_image(image_path: str) -> str:
-    """
-    指定された画像ファイルからテキストを抽出して返す
-    """
-    credentials = load_credentials_from_env()
-    client = vision.ImageAnnotatorClient(credentials=credentials)
+if not google_credential_json:
+    raise ValueError("GOOGLE_CREDENTIAL_JSON 環境変数が設定されていません")
 
-    try:
-        with io.open(image_path, 'rb') as image_file:
-            content = image_file.read()
+# Google Cloud 認証設定ファイルを一時的に保存
+with open("google_key.json", "w") as f:
+    f.write(google_credential_json)
 
-        image = vision.Image(content=content)
-        response = client.text_detection(image=image)
-        texts = response.text_annotations
+os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "google_key.json"
 
-        if response.error.message:
-            raise Exception(f'OCR APIエラー: {response.error.message}')
+# === OCR処理 ===
+def detect_text_from_image(image_path):
+    client = vision.ImageAnnotatorClient()
+    with io.open(image_path, 'rb') as image_file:
+        content = image_file.read()
+    image = vision.Image(content=content)
+    response = client.text_detection(image=image)
+    texts = response.text_annotations
+    if not texts:
+        return ""
+    return texts[0].description
 
-        if texts:
-            return texts[0].description.strip()
-        else:
-            return "テキストが検出されませんでした。"
+# === ChatGPTで予想生成 ===
+def generate_keirin_prediction(ocr_text):
+    prompt = f"""
+以下は競輪の出走表です。この情報をもとに、1着→2着→3着の可能性が高い選手を予想し、3連単フォーメーションを80点以内で出力してください。
 
-    except Exception as e:
-        return f"OCR解析中にエラーが発生しました: {e}"
+出走表：
+{ocr_text}
 
-# テスト実行例（開発中のみ使用）
-if __name__ == "__main__":
-    test_image_path = "test_keirin_image.png"  # 任意のローカル画像パス
-    result = detect_text_from_image(test_image_path)
-    print("OCR結果:\n", result)
+出力形式：
+- 有力選手7名（表形式）
+- 1着候補4人、2着候補5人、3着候補7人で構成
+- 3連単フォーメーションを的中率が高い順で出力（80点以内）
+- 同時に3連複ボックス（7名）も出力
+"""
+
+    response = openai.ChatCompletion.create(
+        model="gpt-4",
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0.7,
+        max_tokens=1500
+    )
+
+    return response.choices[0].message['content']
+
+# === 画像ファイルを処理して最終予想を返す ===
+def process_image_and_predict(image_path):
+    ocr_result = detect_text_from_image(image_path)
+    if not ocr_result:
+        return "OCRで文字を読み取れませんでした。画像を確認してください。"
+    prediction = generate_keirin_prediction(ocr_result)
+    return prediction
