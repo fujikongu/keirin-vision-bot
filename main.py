@@ -1,5 +1,6 @@
 import os
 import json
+import tempfile
 from flask import Flask, request, abort
 from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
@@ -15,13 +16,13 @@ LINE_CHANNEL_ACCESS_TOKEN = os.getenv("LINE_CHANNEL_ACCESS_TOKEN")
 LINE_CHANNEL_SECRET = os.getenv("LINE_CHANNEL_SECRET")
 GOOGLE_CREDENTIAL_JSON = os.getenv("GOOGLE_CREDENTIAL_JSON")
 
-# === チェック ===
+# === 環境変数チェック ===
 if not LINE_CHANNEL_ACCESS_TOKEN or not LINE_CHANNEL_SECRET:
     raise ValueError("LINEの環境変数が未設定です。")
 if not GOOGLE_CREDENTIAL_JSON:
     raise ValueError("GOOGLE_CREDENTIAL_JSON 環境変数が設定されていません。")
 
-# === Cloud Vision API 認証ファイル書き出し ===
+# === 認証ファイルを保存 ===
 with open("google_key.json", "w") as f:
     f.write(GOOGLE_CREDENTIAL_JSON)
 os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "google_key.json"
@@ -47,8 +48,15 @@ def handle_image_message(event):
     image_data = b''.join(chunk for chunk in message_content.iter_content(chunk_size=1024))
     
     try:
-        prediction_result = process_image_and_predict(image_data)
+        # 一時ファイルに保存してパスを渡す
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as temp_file:
+            temp_file.write(image_data)
+            temp_path = temp_file.name
+
+        prediction_result = process_image_and_predict(temp_path)
         line_bot_api.reply_message(event.reply_token, TextSendMessage(text=prediction_result))
+
+        os.remove(temp_path)  # 後処理
     except Exception as e:
         line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"エラーが発生しました: {str(e)}"))
 
