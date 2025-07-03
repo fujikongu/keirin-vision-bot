@@ -1,28 +1,23 @@
 import os
-import json
 from flask import Flask, request, abort
 from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
-from linebot.models import MessageEvent, TextMessage, TextSendMessage
-from vision_ocr import detect_text_from_image
+from linebot.models import MessageEvent, ImageMessage, TextMessage, TextSendMessage
+from vision_ocr import process_image_and_predict
 
-# Flaskアプリ初期化
-app = Flask(__name__)
-
-# 環境変数からLINEの各種キーを取得
+# 環境変数の取得
 LINE_CHANNEL_ACCESS_TOKEN = os.getenv("LINE_CHANNEL_ACCESS_TOKEN")
 LINE_CHANNEL_SECRET = os.getenv("LINE_CHANNEL_SECRET")
 GOOGLE_CREDENTIAL_JSON = os.getenv("GOOGLE_CREDENTIAL_JSON")
 
-# JSON文字列をファイルに保存
-if GOOGLE_CREDENTIAL_JSON:
-    with open("service_account.json", "w") as f:
-        f.write(GOOGLE_CREDENTIAL_JSON)
-    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "service_account.json"
-else:
-    raise ValueError("GOOGLE_CREDENTIAL_JSON 環境変数が設定されていません")
+# 検証
+if not LINE_CHANNEL_ACCESS_TOKEN or not LINE_CHANNEL_SECRET:
+    raise ValueError("LINEの環境変数が未設定です。")
+if not GOOGLE_CREDENTIAL_JSON:
+    raise ValueError("GOOGLE_CREDENTIAL_JSON 環境変数が設定されていません。")
 
-# LINE API初期化
+# Flask アプリ
+app = Flask(__name__)
 line_bot_api = LineBotApi(LINE_CHANNEL_ACCESS_TOKEN)
 handler = WebhookHandler(LINE_CHANNEL_SECRET)
 
@@ -31,27 +26,55 @@ handler = WebhookHandler(LINE_CHANNEL_SECRET)
 def callback():
     signature = request.headers["X-Line-Signature"]
     body = request.get_data(as_text=True)
-
     try:
         handler.handle(body, signature)
     except InvalidSignatureError:
         abort(400)
-
     return "OK"
 
-# 画像メッセージを処理
+# 画像メッセージ受信時
+@handler.add(MessageEvent, message=ImageMessage)
+def handle_image_message(event):
+    try:
+        message_id = event.message.id
+        image_content = line_bot_api.get_message_content(message_id)
+        image_path = f"/tmp/{message_id}.jpg"
+
+        # 画像を保存
+        with open(image_path, "wb") as f:
+            for chunk in image_content.iter_content():
+                f.write(chunk)
+
+        # 画像から予想を生成
+        prediction_result = process_image_and_predict(image_path)
+
+        # 結果を返信
+        line_bot_api.reply_message(
+            event.reply_token,
+            TextSendMessage(text=prediction_result)
+        )
+
+    except Exception as e:
+        line_bot_api.reply_message(
+            event.reply_token,
+            TextSendMessage(text=f"エラーが発生しました：{str(e)}")
+        )
+
+# テキストメッセージ受信時（任意）
 @handler.add(MessageEvent, message=TextMessage)
-def handle_message(event):
-    if event.message.text.lower() == "ocr":
-        reply_text = "画像を送ってください。"
+def handle_text(event):
+    if event.message.text.lower() == "使い方":
+        line_bot_api.reply_message(
+            event.reply_token,
+            TextSendMessage(text="出走表の画像を送信すると、AIが3連単予想を返信します。")
+        )
     else:
-        reply_text = f"「{event.message.text}」というメッセージを受信しました。"
+        line_bot_api.reply_message(
+            event.reply_token,
+            TextSendMessage(text="画像を送信してください。")
+        )
 
-    line_bot_api.reply_message(
-        event.reply_token,
-        TextSendMessage(text=reply_text)
-    )
-
+# アプリ起動
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
