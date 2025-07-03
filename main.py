@@ -1,80 +1,77 @@
 import os
 from flask import Flask, request, abort
 from linebot import LineBotApi, WebhookHandler
+from linebot.models import MessageEvent, ImageMessage, TextSendMessage
 from linebot.exceptions import InvalidSignatureError
-from linebot.models import MessageEvent, ImageMessage, TextMessage, TextSendMessage
-from vision_ocr import process_image_and_predict
+from google.cloud import vision
+import io
+import openai
+from itertools import product
 
-# 環境変数の取得
+app = Flask(__name__)
+
+# 環境変数（Render で設定）
 LINE_CHANNEL_ACCESS_TOKEN = os.getenv("LINE_CHANNEL_ACCESS_TOKEN")
 LINE_CHANNEL_SECRET = os.getenv("LINE_CHANNEL_SECRET")
-GOOGLE_CREDENTIAL_JSON = os.getenv("GOOGLE_CREDENTIAL_JSON")
+GOOGLE_CREDENTIAL_JSON = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
-# 検証
-if not LINE_CHANNEL_ACCESS_TOKEN or not LINE_CHANNEL_SECRET:
-    raise ValueError("LINEの環境変数が未設定です。")
-if not GOOGLE_CREDENTIAL_JSON:
-    raise ValueError("GOOGLE_CREDENTIAL_JSON 環境変数が設定されていません。")
-
-# Flask アプリ
-app = Flask(__name__)
 line_bot_api = LineBotApi(LINE_CHANNEL_ACCESS_TOKEN)
 handler = WebhookHandler(LINE_CHANNEL_SECRET)
+openai.api_key = OPENAI_API_KEY
 
-# Webhookエンドポイント
+# Vision APIクライアント
+os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = GOOGLE_CREDENTIAL_JSON
+vision_client = vision.ImageAnnotatorClient()
+
+
 @app.route("/callback", methods=["POST"])
 def callback():
     signature = request.headers["X-Line-Signature"]
     body = request.get_data(as_text=True)
+
     try:
         handler.handle(body, signature)
     except InvalidSignatureError:
         abort(400)
     return "OK"
 
-# 画像メッセージ受信時
+
 @handler.add(MessageEvent, message=ImageMessage)
-def handle_image_message(event):
-    try:
-        message_id = event.message.id
-        image_content = line_bot_api.get_message_content(message_id)
-        image_path = f"/tmp/{message_id}.jpg"
+def handle_image(event):
+    # 画像を取得
+    message_content = line_bot_api.get_message_content(event.message.id)
+    image_data = b""
+    for chunk in message_content.iter_content():
+        image_data += chunk
 
-        # 画像を保存
-        with open(image_path, "wb") as f:
-            for chunk in image_content.iter_content():
-                f.write(chunk)
+    # Vision APIでOCR
+    image = vision.Image(content=image_data)
+    response = vision_client.text_detection(image=image)
+    texts = response.text_annotations
+    if not texts:
+        line_bot_api.reply_message(event.reply_token, TextSendMessage(text="画像からテキストを読み取れませんでした。"))
+        return
 
-        # 画像から予想を生成
-        prediction_result = process_image_and_predict(image_path)
+    full_text = texts[0].description
 
-        # 結果を返信
-        line_bot_api.reply_message(
-            event.reply_token,
-            TextSendMessage(text=prediction_result)
-        )
+    # ChatGPTに選手の評価と3連単予測依頼（車番のみで）
+    system_prompt = "あなたは競輪予想の専門家です。以下の出走表から有力な選手を車番のみで予想し、1着候補3人・2着候補4人・3着候補7人を選び、重複なし3連単45点（車番形式）を出力してください。選手名や勝率も考慮して構いませんが、出力には車番しか使わないでください。"
 
-    except Exception as e:
-        line_bot_api.reply_message(
-            event.reply_token,
-            TextSendMessage(text=f"エラーが発生しました：{str(e)}")
-        )
+    user_prompt = f"出走表の内容:\n{full_text}\n\n3連単予想を出力してください（例：3→1→7）"
 
-# テキストメッセージ受信時（任意）
-@handler.add(MessageEvent, message=TextMessage)
-def handle_text(event):
-    if event.message.text.lower() == "使い方":
-        line_bot_api.reply_message(
-            event.reply_token,
-            TextSendMessage(text="出走表の画像を送信すると、AIが3連単予想を返信します。")
-        )
-    else:
-        line_bot_api.reply_message(
-            event.reply_token,
-            TextSendMessage(text="画像を送信してください。")
-        )
+    response = openai.ChatCompletion.create(
+        model="gpt-4",
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt}
+        ]
+    )
 
-# アプリ起動
+    prediction_text = response["choices"][0]["message"]["content"]
+    line_bot_api.reply_message(event.reply_token, TextSendMessage(text=prediction_text))
+
+
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
