@@ -1,4 +1,7 @@
-Flask
+flask
 line-bot-sdk
+openai
 google-cloud-vision
-Pillow
+google-auth
+google-auth-oauthlib
+google-auth-httplib2
