@@ -1,77 +1,64 @@
-import os
+import import os
+import json
 from flask import Flask, request, abort
 from linebot import LineBotApi, WebhookHandler
-from linebot.models import MessageEvent, ImageMessage, TextSendMessage
 from linebot.exceptions import InvalidSignatureError
-from google.cloud import vision
-import io
-import openai
-from itertools import product
+from linebot.models import (
+    MessageEvent, TextMessage, TextSendMessage, ImageMessage
+)
+from vision_ocr import process_image_and_predict
 
 app = Flask(__name__)
 
-# 環境変数（Render で設定）
+# === 環境変数の読み込み ===
 LINE_CHANNEL_ACCESS_TOKEN = os.getenv("LINE_CHANNEL_ACCESS_TOKEN")
 LINE_CHANNEL_SECRET = os.getenv("LINE_CHANNEL_SECRET")
-GOOGLE_CREDENTIAL_JSON = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+GOOGLE_CREDENTIAL_JSON = os.getenv("GOOGLE_CREDENTIAL_JSON")
+
+# === 環境変数チェック ===
+if not LINE_CHANNEL_ACCESS_TOKEN or not LINE_CHANNEL_SECRET:
+    raise ValueError("LINEの環境変数が未設定です。")
+if not GOOGLE_CREDENTIAL_JSON:
+    raise ValueError("GOOGLE_CREDENTIAL_JSON 環境変数が設定されていません。")
+
+# === Cloud Vision API 認証用に環境変数を設定 ===
+os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = GOOGLE_CREDENTIAL_JSON
 
 line_bot_api = LineBotApi(LINE_CHANNEL_ACCESS_TOKEN)
 handler = WebhookHandler(LINE_CHANNEL_SECRET)
-openai.api_key = OPENAI_API_KEY
 
-# Vision APIクライアント
-os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = GOOGLE_CREDENTIAL_JSON
-vision_client = vision.ImageAnnotatorClient()
-
-
+# === ルート設定 ===
 @app.route("/callback", methods=["POST"])
 def callback():
     signature = request.headers["X-Line-Signature"]
     body = request.get_data(as_text=True)
-
     try:
         handler.handle(body, signature)
     except InvalidSignatureError:
         abort(400)
     return "OK"
 
-
+# === メッセージイベント処理 ===
 @handler.add(MessageEvent, message=ImageMessage)
-def handle_image(event):
-    # 画像を取得
+def handle_image_message(event):
     message_content = line_bot_api.get_message_content(event.message.id)
-    image_data = b""
-    for chunk in message_content.iter_content():
-        image_data += chunk
+    image_data = b''.join(chunk for chunk in message_content.iter_content(chunk_size=1024))
+    
+    try:
+        prediction_result = process_image_and_predict(image_data)
+        line_bot_api.reply_message(event.reply_token, TextSendMessage(text=prediction_result))
+    except Exception as e:
+        line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"エラーが発生しました: {str(e)}"))
 
-    # Vision APIでOCR
-    image = vision.Image(content=image_data)
-    response = vision_client.text_detection(image=image)
-    texts = response.text_annotations
-    if not texts:
-        line_bot_api.reply_message(event.reply_token, TextSendMessage(text="画像からテキストを読み取れませんでした。"))
-        return
+@handler.add(MessageEvent, message=TextMessage)
+def handle_text_message(event):
+    text = event.message.text
+    if "テスト" in text:
+        line_bot_api.reply_message(event.reply_token, TextSendMessage(text="Botは正常に動作しています。出走表画像を送ってください。"))
+    else:
+        line_bot_api.reply_message(event.reply_token, TextSendMessage(text="画像を送信してください（出走表）"))
 
-    full_text = texts[0].description
-
-    # ChatGPTに選手の評価と3連単予測依頼（車番のみで）
-    system_prompt = "あなたは競輪予想の専門家です。以下の出走表から有力な選手を車番のみで予想し、1着候補3人・2着候補4人・3着候補7人を選び、重複なし3連単45点（車番形式）を出力してください。選手名や勝率も考慮して構いませんが、出力には車番しか使わないでください。"
-
-    user_prompt = f"出走表の内容:\n{full_text}\n\n3連単予想を出力してください（例：3→1→7）"
-
-    response = openai.ChatCompletion.create(
-        model="gpt-4",
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt}
-        ]
-    )
-
-    prediction_text = response["choices"][0]["message"]["content"]
-    line_bot_api.reply_message(event.reply_token, TextSendMessage(text=prediction_text))
-
-
+# === Flask 起動 ===
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
