@@ -1,4 +1,3 @@
-
 import os
 import io
 from google.cloud import vision
@@ -26,15 +25,22 @@ def detect_text_from_image_bytes(image_bytes):
         return ""
     return texts[0].description
 
-# === ChatGPTによる予想生成 ===
-def generate_keirin_prediction(ocr_text):
+# === ChatGPTによる展開予想付き3連単予想生成 ===
+def generate_keirin_prediction_with_race_scenario(ocr_text):
     prompt = f"""
 以下は競輪の出走表です。
 
 各選手について、競走得点、勝率、2連対率、3連対率、決まり手（逃げ・捲り・差し）、バック本数（B）、捲られた回数（H）、スタート数（S）、直近成績、地区などが記載されています。
 
 【あなたの役割】
-プロの競輪予想AIとして、データを分析し、的中確率の高い3連単フォーメーションを出力してください。
+プロの競輪予想AIとして、展開を踏まえて、的中確率の高い3連単フォーメーションを出力してください。
+
+【展開予想】
+まず以下のポイントについて展開を予測してください：
+- どの選手がスタートで前を取りそうか
+- どのラインが主導権（先行）を取る可能性が高いか
+- 誰がまくり・差しで勝負する展開になるか
+- 番手から抜け出しそうな選手がいるか
 
 【評価基準（すべて反映してください）】
 - 競走得点が高い選手を基本に評価
@@ -71,5 +77,7 @@ def process_image_and_predict(image_bytes):
     ocr_result = detect_text_from_image_bytes(image_bytes)
     if not ocr_result:
         return "OCRで文字を読み取れませんでした。画像を確認してください。"
-    prediction = generate_keirin_prediction(ocr_result)
+    
+    # ⭐ 展開予想付きロジックをここで使用 ⭐
+    prediction = generate_keirin_prediction_with_race_scenario(ocr_result)
     return prediction
