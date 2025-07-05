@@ -1,4 +1,5 @@
 import os
+import io
 from google.cloud import vision
 import openai
 
@@ -24,7 +25,7 @@ def detect_text_from_image_bytes(image_bytes):
         return ""
     return texts[0].description
 
-# === ChatGPTによる展開予想付き3連単予想生成（強化プロンプト） ===
+# === ChatGPTによる展開付き3連単予想生成 ===
 def generate_keirin_prediction_with_race_scenario(ocr_text):
     prompt = f"""
 以下は競輪の出走表です。
@@ -35,7 +36,7 @@ def generate_keirin_prediction_with_race_scenario(ocr_text):
 プロの競輪予想AIとして、展開を踏まえて、的中確率の高い3連単フォーメーションを出力してください。
 
 【展開予想】
-以下の展開を最初に考慮し、その上で予想してください：
+まず以下のポイントを読み取り、出走表の内容から展開を予測した上で3連単候補を構築してください：
 - どの選手がスタートで前を取りそうか
 - どのラインが主導権（先行）を取る可能性が高いか
 - 誰がまくり・差しで勝負する展開になるか
@@ -50,14 +51,21 @@ def generate_keirin_prediction_with_race_scenario(ocr_text):
 - 先行力のある選手がいないレースでは、差し・捲りが有利
 - 強力な先行選手がいる場合は、そのラインの番手選手を高評価
 - 特定の車番に偏らず、バランスよく候補を選出
+- 表の並び順や上位配置などに引きずられないよう注意
 
-【出力ルール（絶対厳守）】
-- 1着候補：3人（この3人以外を1着にしてはいけません）
-- 2着候補：5人（1着候補を含んでもよい）
-- 3着候補：6人（1着・2着候補を含んでもよい）
-- 出力はこの候補のみで構成すること。候補外の車番は使用禁止。
-- 出力は車番のみ（例：1→2→3）で、解説文・選手名は不要
-- 出力フォーメーションは的中確率が高い順に45〜50点出力すること
+【出力ルール（この形式で出力してください）】
+1着候補: x,x,x  
+2着候補: x,x,x,x,x  
+3着候補: x,x,x,x,x,x  
+
+フォーメーション:  
+x→x→x  
+x→x→x  
+...（最大50点まで）
+
+※ 選手名や解説文は一切出力せず、車番の数字だけで構成してください。
+※ 必ず「1着候補に含まれない選手が1着に来る組み合わせ」は出力しないでください。
+※ 出力の順番は、的中確率が高い順としてください。
 
 【出走表】
 {ocr_text}
@@ -70,34 +78,12 @@ def generate_keirin_prediction_with_race_scenario(ocr_text):
     )
     return response.choices[0].message['content']
 
-
-# === 出力バリデーション：1着候補外が含まれていないか検査し除外 ===
-def validate_predictions(predictions_text, ichaku_candidates):
-    valid_lines = []
-    for line in predictions_text.splitlines():
-        if "→" in line:
-            first = line.split("→")[0].strip()
-            if first in ichaku_candidates:
-                valid_lines.append(line.strip())
-    return "\n".join(valid_lines)
-
-
-# === メイン処理：画像から3連単予想を生成 ===
+# === 画像データ（bytes）を受け取って予想出力 ===
 def process_image_and_predict(image_bytes):
     ocr_result = detect_text_from_image_bytes(image_bytes)
     if not ocr_result:
         return "OCRで文字を読み取れませんでした。画像を確認してください。"
-
-    raw_prediction = generate_keirin_prediction_with_race_scenario(ocr_result)
-
-    # ★ ChatGPT出力から1着候補を抽出
-    ichaku_candidates = []
-    for line in raw_prediction.splitlines():
-        if "1着候補" in line:
-            ichaku_candidates = [x.strip() for x in line.split(":")[1].split(",")]
-            break
-
-    # ★ 出力のバリデーション処理
-    filtered_prediction = validate_predictions(raw_prediction, ichaku_candidates)
-
-    return filtered_prediction if filtered_prediction else "有効な3連単予想が取得できませんでした。"
+    
+    # 展開予測を含めたフォーマット付き3連単予想
+    prediction = generate_keirin_prediction_with_race_scenario(ocr_result)
+    return prediction
