@@ -80,7 +80,7 @@ def generate_keirin_prediction_with_race_scenario(ocr_text):
     response = openai.ChatCompletion.create(
         model="gpt-4o",
         messages=[{"role": "user", "content": prompt}],
-        temperature=0.7,
+        temperature=0.0,
         max_tokens=1500
     )
     return response.choices[0].message['content']
