@@ -61,9 +61,6 @@ def generate_keirin_prompt(race_info: str) -> str:
 
 これらに該当する場合、たとえ地味な成績でも3着候補や穴として評価対象に含めてください。
 
-【競艇場の特徴】
-{stadium_feature}
-
 【出力形式】
 1着候補: x,x,x  
 2着候補: x,x,x,x,x  
