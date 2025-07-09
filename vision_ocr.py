@@ -63,8 +63,8 @@ def generate_keirin_prompt(race_info: str) -> str:
 
 【出力形式】
 1着候補: x,x,x  
-2着候補: x,x,x,x,x  
-3着候補: x,x,x,x,x,x  
+2着候補: x,x,x,x
+3着候補: x,x,x,x,x
 
 フォーメーション:  
 x→x→x  
