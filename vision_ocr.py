@@ -58,7 +58,7 @@ def generate_keirin_prompt(race_info: str) -> str:
 - 枠なりでも隣がF持ちやST不安定でチャンスが広がる艇
 
 これらに該当する場合、たとえ地味な成績でも3着候補や穴として評価対象に含めてください。
-"""
+""".strip()
 
     if is_women_only:
         base_prompt += """
@@ -73,8 +73,8 @@ def generate_keirin_prompt(race_info: str) -> str:
 
 【出力形式】
 1着候補: x,x,x  
-2着候補: x,x,x,x
-3着候補: x,x,x,x,x
+2着候補: x,x,x,x  
+3着候補: x,x,x,x,x  
 
 フォーメーション:  
 x→x→x  
@@ -83,13 +83,14 @@ x→x→x
 
 ※すべての出力は数字（艇番）のみで構成してください  
 ※解説・コメント文は一切出力しないこと  
-※1着候補にいない艇が1着になる組み合わせは出力しない
+※1着候補にいない艇が1着になる組み合わせは出力しない  
 ※1着候補に含まれていない選手が1着になる組み合わせは出力しないこと  
 ※展開に整合性があるように構成すること（例：捲り展開に差し艇が1着は矛盾）  
 ※展開の恩恵がありそうな選手も着候補として適切に評価すること  
 ※的中確率が高い順に並べること
-"""
-    return base_prompt.strip()
+""".rstrip()
+
+    return base_prompt
 
 # === ChatGPTによる展開付き3連単予想生成 ===
 def generate_keirin_prediction_with_race_scenario(ocr_text):
