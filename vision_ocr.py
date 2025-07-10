@@ -25,10 +25,11 @@ def detect_text_from_image_bytes(image_bytes):
     return texts[0].description
 
 # === プロンプト生成関数（逃げ偏り防止バージョン） ===
-def build_prompt(race_info: str) -> str:
-    # 女子戦かどうかを簡易判定
+def generate_keirin_prompt(race_info: str) -> str:
+    # 女子戦かどうかを簡易的に判定（名前と級別に基づく）
     is_women_only = "B1" in race_info and all(
-        name in race_info for name in ["さん", "子", "花", "美", "夏"]
+        any(char in name for char in ["さん", "子", "花", "美", "夏"])
+        for name in race_info.split("\n")
     )
 
     base_prompt = f"""以下は競艇（ボートレース）の出走表情報です。展示タイムは考慮せず、**モーター性能・コース・スタート傾向・選手の脚質・近況成績**などから展開を予測し、**的中確率の高い3連単フォーメーション**を構築してください。
@@ -62,7 +63,7 @@ def build_prompt(race_info: str) -> str:
 - 枠なりでも隣がF持ちやST不安定でチャンスが広がる艇
 
 これらに該当する場合、たとえ地味な成績でも3着候補や穴として評価対象に含めてください。
-""".strip()
+"""
 
     if is_women_only:
         base_prompt += """
@@ -92,9 +93,9 @@ x→x→x
 ※展開に整合性があるように構成すること（例：捲り展開に差し艇が1着は矛盾）  
 ※展開の恩恵がありそうな選手も着候補として適切に評価すること  
 ※的中確率が高い順に並べること
-""".rstrip()
+"""
 
-    return base_prompt
+    return base_prompt.strip()
 
 # === ChatGPTによる展開付き3連単予想生成 ===
 def generate_keirin_prediction_with_race_scenario(ocr_text):
