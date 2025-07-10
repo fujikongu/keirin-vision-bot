@@ -26,8 +26,10 @@ def detect_text_from_image_bytes(image_bytes):
 
 # === プロンプト生成関数（逃げ偏り防止バージョン） ===
 def build_prompt(race_info: str) -> str:
-    # 簡易女子戦判定
-    is_women_only = "B1" in race_info and all(name in race_info for name in ["さん", "子", "花", "美", "夏"])
+    # 女子戦かどうかを簡易判定
+    is_women_only = "B1" in race_info and all(
+        name in race_info for name in ["さん", "子", "花", "美", "夏"]
+    )
 
     base_prompt = f"""以下は競艇（ボートレース）の出走表情報です。展示タイムは考慮せず、**モーター性能・コース・スタート傾向・選手の脚質・近況成績**などから展開を予測し、**的中確率の高い3連単フォーメーション**を構築してください。
 
