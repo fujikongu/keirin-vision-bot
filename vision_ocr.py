@@ -58,6 +58,18 @@ def generate_keirin_prompt(race_info: str) -> str:
 - 枠なりでも隣がF持ちやST不安定でチャンスが広がる艇
 
 これらに該当する場合、たとえ地味な成績でも3着候補や穴として評価対象に含めてください。
+"""
+
+    if is_women_only:
+        base_prompt += """
+
+【女子戦における特有の注意点】
+- 一般的にスタートが慎重になりやすく、差し展開が増えやすい傾向があります。
+- モーター性能の影響が結果に直結しやすく、2連対率は信頼度が高い材料です。
+- 展開に乗りやすい選手（差し屋・自在型）が浮上しやすいので評価を忘れずに。
+"""
+
+    base_prompt += """
 
 【出力形式】
 1着候補: x,x,x  
@@ -77,7 +89,7 @@ x→x→x
 ※展開の恩恵がありそうな選手も着候補として適切に評価すること  
 ※的中確率が高い順に並べること
 """
-    return prompt.strip()
+    return base_prompt.strip()
 
 # === ChatGPTによる展開付き3連単予想生成 ===
 def generate_keirin_prediction_with_race_scenario(ocr_text):
